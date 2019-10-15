@@ -7,27 +7,63 @@ import face_recognition.api as face_recognition
 import multiprocessing
 import itertools
 import sys
+import json
 import PIL.Image
 import numpy as np
-
+from sqlalchemy import create_engine
+import re
+from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlite_db.db_classes import Base, FacePattern
 
 def scan_known_people(known_people_folder):
+    basename_pattern = re.compile(r"[a-zA-Z]+\_[a-zA-Z]+")
+    basename_pattern_number = re.compile((r"[a-zA-Z]+\_[a-zA-Z]+\_[0-9]+"))
+    name_surname_pattern = re.compile((r"[a-zA-Z]+"))
+
+    db_engine = create_engine("sqlite:///face_recognition/sqlite_db/face_recognition.db")
+    Base.metadata.create_all(db_engine)
+    session_factory = sessionmaker(bind=db_engine)
+    session = scoped_session(session_factory)
+
     known_names = []
     known_face_encodings = []
 
     for file in image_files_in_folder(known_people_folder):
         basename = os.path.splitext(os.path.basename(file))[0]
         img = face_recognition.load_image_file(file)
-        encodings = face_recognition.face_encodings(img)
+        
+        # Check for files with appropriate name
+        if basename_pattern.fullmatch(basename) or basename_pattern_number.fullmatch(basename):
+            # Get name and surname of the person from image
+            pattern_identity = ' '.join([name.capitalize() for name in name_surname_pattern.findall(basename)])
 
-        if len(encodings) > 1:
-            click.echo("WARNING: More than one face found in {}. Only considering the first face.".format(file))
+            face_pattern = session.query(FacePattern).filter_by(file_name = basename).first()
+            if face_pattern:
+                click.echo("Pattern for {} found in database.".format(file))
+                # pattern_encodings = face_pattern.encodings
+                known_names.append(face_pattern.pattern_identity)
+                known_face_encodings.append(np.array(json.loads(face_pattern.encodings)))
+            else:
+                click.echo("Pattern for {} not found in database. Calculating pattern..".format(file))
 
-        if len(encodings) == 0:
-            click.echo("WARNING: No faces found in {}. Ignoring file.".format(file))
-        else:
-            known_names.append(basename)
-            known_face_encodings.append(encodings[0])
+                encodings = face_recognition.face_encodings(img)
+
+                if len(encodings) > 1:
+                    click.echo("WARNING: More than one face found in {}. Only considering the first face.".format(file))
+
+                if len(encodings) == 0:
+                    click.echo("WARNING: No faces found in {}. Ignoring file.".format(file))
+                else:
+                    known_names.append(pattern_identity)
+                    known_face_encodings.append(encodings[0])
+                    session.add(
+                        FacePattern(
+                            file_name = basename,
+                            pattern_identity = pattern_identity,
+                            encodings = json.dumps(list(encodings[0]))
+                        )
+                    )
+                    session.commit()
 
     return known_names, known_face_encodings
 
