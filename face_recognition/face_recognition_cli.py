@@ -8,6 +8,7 @@ import multiprocessing
 import itertools
 import sys
 import json
+import zlib
 import PIL.Image
 import numpy as np
 from sqlalchemy import create_engine
@@ -40,9 +41,13 @@ def scan_known_people(known_people_folder):
             # Select pattern from database
             face_pattern = session.query(FacePattern).filter_by(file_name = basename).first()
             if face_pattern:
-                click.echo("Pattern for {} found in database.".format(file))
-                known_names.append(face_pattern.pattern_identity)
-                known_face_encodings.append(np.array(json.loads(face_pattern.encodings)))
+                if face_pattern.file_hash == zlib.crc32(open(file, "rb").read()):
+                    click.echo("Pattern for {} found in database.".format(file))
+                    known_names.append(face_pattern.pattern_identity)
+                    known_face_encodings.append(np.array(json.loads(face_pattern.encodings)))
+                else:
+                    click.echo("Pattern for {} found in database, but CRC32 is not the same." \
+                         "Probably someone have overwritten the file.".format(file))
             else:
                 click.echo("Pattern for {} not found in database. Calculating pattern..".format(file))
 
@@ -59,6 +64,7 @@ def scan_known_people(known_people_folder):
                     session.add(
                         FacePattern(
                             file_name = basename,
+                            file_hash = zlib.crc32(open(file, "rb").read()),
                             pattern_identity = pattern_identity,
                             encodings = json.dumps(list(encodings[0]))
                         )
