@@ -37,10 +37,10 @@ def scan_known_people(known_people_folder):
             # Get name and surname of the person from image
             pattern_identity = ' '.join([name.capitalize() for name in name_surname_pattern.findall(basename)])
 
+            # Select pattern from database
             face_pattern = session.query(FacePattern).filter_by(file_name = basename).first()
             if face_pattern:
                 click.echo("Pattern for {} found in database.".format(file))
-                # pattern_encodings = face_pattern.encodings
                 known_names.append(face_pattern.pattern_identity)
                 known_face_encodings.append(np.array(json.loads(face_pattern.encodings)))
             else:
